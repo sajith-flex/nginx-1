@@ -1,0 +1,484 @@
+###################################################
+#1 nginx install
+# root@ubuntu-nginx:~#vi nginx_install.sh
+###################################################
+sudo apt-get update
+sudo apt -y install nginx
+service nginx status
+###################################################
+###################################################
+#2 /etc/nginx/nginx.conf - required to start nginx
+# root@ubuntu-nginx:~# cat /etc/nginx/nginx.conf
+###################################################
+events {
+}
+
+
+http {
+    server {
+       location / {
+       }
+
+    }
+
+}
+################
+nginx -s reload          
+###################################################
+###################################################
+#3 change the contents of nginx
+# root@ubuntu-nginx:~# vi /usr/share/nginx/html/index.html and change contents
+###################################################
+nginx -s reload 
+###################################################
+###################################################
+#4.1 Proxy seutup - change default port       
+root@ubuntu-nginx:~/myapp# cat /etc/nginx/nginx.conf
+###################################################
+worker_processes  1;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+
+    server {
+        listen       81;
+        server_name  localhost;
+
+        location / {
+            } # end location
+        } # end server
+    } # end http
+####################################################
+###################################################
+#4.2 Virtual host setup
+mkdir -p /var/www/nginx-proxy.com/html/
+....
+...
+<h1>Welcome to nginx proxy !!</h1>
+....
+...
+
+root@ubuntu-nginx:/etc/nginx/sites-enabled# vi /etc/nginx/sites-available/nginx-proxy.conf
+###################################################
+server {
+       listen 80;
+      listen [::]:80;         # IPv6 notation
+
+       root /var/www/nginx-proxy.com/html;
+       index index.html;
+
+       location / {
+               try_files $uri $uri/ =404;
+       }
+}
+###################################################
+sudo nginx -t
+ln -s /etc/nginx/sites-available/nginx-proxy.conf /etc/nginx/sites-enabled/default
+nginx -s reload
+##################################### access nginx through web browser at 192.168.56.106 and it will display nginx proxy file.
+
+######################################################################################################
+#5 Reverse Proxy seutup.          #  https://www.redhat.com/sysadmin/setting-reverse-proxies-nginx
+####################################################
+root@ubuntu-nginx:~/myapp# cat /etc/nginx/nginx.conf
+worker_processes  1;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+
+    server {
+        listen       80;
+        server_name  localhost;
+
+        location / {
+            proxy_pass http://localhost:8888;
+            index  index.html index.htm;
+            } # end location
+        } # end server
+    } # end http
+
+mkdir -p myapp
+cd myapp
+root@ubuntu-nginx:~/myapp# vi index.html
+<html><head><title>Python3 http.server</title></head> <body><p>Welcome to my site !!</p> </body></html>
+
+python3 -m http.server 8888 &    # 502 Bad Gateway in Nginx occurs when Nginx runs as a reverse proxy, and is unable to connect to backend services (at 8888 here)
+
+################ In web browser at windows
+192.168.56.106:8888                 # access app directly
+192.168.56.106			    # access app through nginx (localhost)
+###################################################
+###################################################
+#6 Reverse Proxy : Load balancer HTTP  
+##################################### setup 3 app servers
+mkdir -p myapp1 myapp2 myapp3
+
+vi myapp1/index.html
+<html><head><title>Python3 http.server</title></head> <body><p>Welcome to my site 1 !!</p> </body></html>
+vi myapp2/index.html
+<html><head><title>Python3 http.server</title></head> <body><p>Welcome to my site 2 !!</p> </body></html>
+vi myapp3/index.html
+<html><head><title>Python3 http.server</title></head> <body><p>Welcome to my site 3 !!</p> </body></html>
+
+
+##################################### run app servers
+cd myapp1
+python3 -m http.server 8888 &
+
+cd ../myapp2
+python3 -m http.server 8889 &
+
+cd ../myapp3
+python3 -m http.server 9000 &
+
+##################################### update nginx.conf
+vi /etc/nginx/nginx.conf
+events { }
+
+http {
+   log_format upstreamlog '$server_name to: $upstream_addr {$request} '
+   'upstream_response_time $upstream_response_time'
+   ' request_time $request_time';
+
+upstream backend {
+  # ip_hash;                             # This allows the visitors to be directed each time to the same server
+  # least_conn;				 # This allows the visitors to be directed to server with least connection
+
+#   server localhost:8888;		 # by default round robin
+#   server localhost:8889;
+#   server localhost:9000;
+
+   server localhost:8888 weight=3;       # server with highest weight selected most often
+   server localhost:8889 weight=2;
+   server localhost:9000;
+
+ }
+
+server {
+   listen 80;
+   access_log /var/log/nginx/nginx-access.log upstreamlog;
+   location / {
+      proxy_pass http://backend;
+   }
+}
+}
+
+##################################### test nginx configuration and reload nginx
+sudo nginx -t
+nginx -s reload
+
+##################################### access nginx through web browser say 192.168.56.106 with different LD schemes
+###################################################
+# TCP Load Balancer - Reverse Proxy
+##################################### update nginx.conf
+vi /etc/nginx/nginx.conf
+#####################################
+events {
+    worker_connections  1024;
+}
+
+stream {
+        upstream stream_backend {
+            server localhost:3306;
+            server localhost:3307;
+        }
+
+        server {
+            listen 80;
+            proxy_connect_timeout 1s;
+            proxy_timeout 3s;
+            proxy_pass stream_backend;
+        }
+}
+#####################################
+sudo nginx -t
+nginx -s reload
+#####################################
+root@ubuntu-nginx:/etc/nginx# netstat -lpn
+Active Internet connections (only servers)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name
+tcp        0      0 0.0.0.0:3306            0.0.0.0:*               LISTEN      2043/python3
+tcp        0      0 0.0.0.0:3307            0.0.0.0:*               LISTEN      2044/python3
+##################################### setup 2 app servers
+
+mkdir -p tcpapp1 tcpapp2
+vi tcpapp1/index.html
+<html><head><title>Python3 http.server</title></head> <body><p>Welcome to tcp site 1 !!</p> </body></html>
+vi tcpapp2/index.html
+<html><head><title>Python3 http.server</title></head> <body><p>Welcome to tcp site 2 !!</p> </body></html>
+
+##################################### run app servers
+cd tcpapp1
+python3 -m http.server 3306 &
+
+cd ../tcpapp2
+python3 -m http.server 3307 &
+##################################### test nginx configuration and reload nginx
+sudo nginx -t
+nginx -s reload
+
+##################################### access nginx through web browser say 192.168.56.106 with different LD schemes
+##########################################################################
+###################################################
+# UDP Load Balancer - Reverse Proxy
+##################################### update nginx.conf
+vi /etc/nginx/nginx.conf
+#####################################
+events {
+    worker_connections  1024;
+}
+
+stream {
+        upstream stream_backend {
+            server localhost:53;
+            server localhost:54;
+        }
+
+        server {
+            listen 80;
+            listen 53 udp;
+            listen 54 udp;
+            proxy_connect_timeout 1s;
+            proxy_timeout 3s;
+            proxy_pass stream_backend;
+        }
+}
+#####################################
+sudo nginx -t
+nginx -s reload
+#####################################
+root@ubuntu-nginx:/etc/nginx# netstat -lpn
+Active Internet connections (only servers)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name
+udp        0      0 0.0.0.0:53              0.0.0.0:*                           2200/nginx -g daemo
+udp        0      0 0.0.0.0:54              0.0.0.0:*                           2200/nginx -g daemo
+
+##################################### setup 2 app servers
+mkdir -p udpapp1 udpapp2
+
+vi udpapp1/index.html
+<html><head><title>Python3 http.server</title></head> <body><p>Welcome to udp site 1 !!</p> </body></html>
+vi udpapp2/index.html
+<html><head><title>Python3 http.server</title></head> <body><p>Welcome to udp site 2 !!</p> </body></html>
+
+##################################### run app servers
+cd udpapp1
+python3 -m http.server 53 &
+
+cd ../udpapp2
+python3 -m http.server 54 &
+##################################### test nginx configuration and reload nginx
+sudo nginx -t
+nginx -s reload
+
+##################################### access nginx through web browser say 192.168.56.106 with different LD schemes
+##################################### 
+#7 Health Check
+
+Passive Health Check : For passive health checks, Nginx Plus and Nginx monitor the transaction as they happen, and try to resume the failed connections. If the transaction still cannot be resumed, Nginx Plus and Nginx open-source mark the server as unavailable and temporarily stop sending requests to it until it is marked active again.
+#####################################
+vi /etc/nginx/nginx.conf
+...
+...
+...
+server localhost:9000 max_fails=3 fail_timeout=30s; 
+...
+...
+# If Nginx will fail to send a request to a server or if will not receive response from it 3 times in 30 secs,it will mark the server unavailable for 30 secs
+
+nginx -s reload
+
+kill -9  <process id for server localhost:9000>
+# refresh web browser multible times - request will go to 1 and 2 only
+python3 -m http.server 9000 &
+
+# refresh web browser multiple times - still request goes to 1 and 2 only until 30 secs.
+##################################################################################################################################
+
+
+Active health check
+
+
+root@ip-172-31-81-60:/etc/nginx# vi nginx.conf
+events { }
+
+http {
+   log_format upstreamlog '$server_name to: $upstream_addr {$request} '
+   'upstream_response_time $upstream_response_time'
+   ' request_time $request_time';
+
+upstream backend {
+  # ip_hash;                             # This allows the visitors to be each time directed to the same server
+  # least_conn;                          # This allows the visitors to be directed to server with least connection
+   zone backend 64k;                # required for active health check tag health_check    
+   server localhost:8888;                # by default round robin
+   server localhost:8889;
+   server localhost:9000;
+
+# server localhost:9000 max_fails=3 fail_timeout=30s;
+
+
+#   server localhost:8888 weight=3;       # server with highest weight selected most often
+#   server localhost:8889 weight=2;
+#   server localhost:9000;
+
+ }
+
+server {
+   listen 80;
+   access_log /var/log/nginx/nginx-access.log upstreamlog;
+   location / {
+      proxy_pass http://backend;
+      health_check port=9000 interval=20 fails=3 passes=2;          # keep checking health after every 20 sec as long as port 9000 is running
+      health_check interval=20 fails=3 passes=2;          # keep checking health after every 20 sec for all ports
+   }
+}
+}
+
+
+
+
+
+
+
+
+# if we disable "proxy_pass http://localhost:8888;" then 192.168.56.106	will show default web page
+
+Nginx Plus
+
+
+
+Security using JWT
+JWT authentication. JWT is data format for user information in the OpenID Connect standard and uses OAuth 2.0 protocol.
+auth_jwt   "API"
+
+In order to validate the signature with a key, a JSON Web Key (key.jwk) should be created.
+
+Nginx dynamic modules : cookie flag, encryption session, 
+
+
+
+
+########  Not working
+
+
+sudo mkdir -p /var/www/example.com
+sudo vim /var/www/example.com/index.html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>example.com</title>
+</head>
+<body>
+
+    <h1>example.com server block</h1>
+</body>
+</html>
+
+
+
+sudo vim /etc/nginx/sites-available/example.com.conf
+server {
+       listen 8080;
+       listen [::]:80;
+
+       server_name example.com www.example.com;
+
+       root /var/www/example.com;
+       index index.html;
+
+       location / {
+               try_files $uri $uri/ =404;
+       }
+}
+
+sudo nginx -t        # test nginx configuration
+rm -rf /etc/nginx/sites-enabled/default
+
+sudo ln -s /etc/nginx/sites-available/example.com.conf /etc/nginx/sites-enabled/default
+nginx -s reload   
+
+# check the browser in windows at port 8080.
+###################################################
+###################################################
+# logs
+
+
+access_log and error_log    at /var/log/nginx
+
+
+
+
+
+
+
+
+
+https://www.javatpoint.com/how-to-install-nginx-on-windows
+https://nginx.org/en/download.html
+nginx/Windows-1.17.5  pgp
+
+Proxy [extra layer in front of client] : server does not know to which server the request goes.
+Reverse proxy [extra layer in front of server] : client does not know to which server request goes.
+Reverse proxy can work with 1 server but for LB, 2 or more servers are required.
+
+https://www.youtube.com/watch?v=SpL_hJNUNEI            nginx LB
+https://www.youtube.com/watch?v=S8J2fkN2FeI            LB vs reverse proxy
+
+
+#################################################################################################
+Nginx as security feature
+
+# enable firewall
+
+sudo ufw status
+sudo ufw enable
+sudo ufw status
+
+192.168.56.106:8888                 # no output as no port is enabled
+192.168.56.106			    # no output as no port is enabled
+sudo ufw allow 80/tcp
+
+root@ubuntu-nginx:~/myapp# sudo ufw status
+Status: active
+
+To                         Action      From
+--                         ------      ----
+80/tcp                     ALLOW       Anywhere
+80/tcp (v6)                ALLOW       Anywhere (v6)
+
+
+
+192.168.56.106:8888                 # no output as 8888 port is not enabled.
+192.168.56.106			    # 8888 is only accessible through port 80.
+################################################################################################
+Nginx as load balancer
+sudo ufw disable          # disable firewall
+
+
+
+
+
+
+
+#######################################################################
+Nginx Plus - Use AWS Linux
+30 days trial - download key and crt
+
+Refer
+https://cs.nginx.com/repo_setup?mkt_tok=eyJpIjoiTjJSaU1UTTNPVEZtTm1NeSIsInQiOiJpaERBSFwvbUlHRGsyU3Zidjh0aml5OWlhTVFaNjRmdjAwaCtGWTBsalkzXC9JcWJORmIxOThzUkxmTFVpaGRiMmg4dFVXYlp2MGVTaWJLY3NsZFk1YW9Hb0R6bGV5WWZuUCs0M0MyV252b3VPY1IxdlFnYkRISXZBZmdiM1wvUlwvV0IifQ%3D%3D
+
+# launch AWS linux instance with security group inbound rule "All traffic" anywhere and use Public IP to access through windows web browser
+Amazon Linux 2 AMI (HVM), SSD Volume Type
+
+install nginx plus using above instructions and start it and check it from windows URI.
+
+

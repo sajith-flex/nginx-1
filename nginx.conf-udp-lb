@@ -1,0 +1,19 @@
+events {
+    worker_connections  1024;
+}
+
+stream {
+        upstream stream_backend {
+            server localhost:53;
+            server localhost:54;
+        }
+
+        server {
+            listen 80;
+            listen 53 udp;
+            listen 54 udp;
+            proxy_connect_timeout 1s;
+            proxy_timeout 3s;
+            proxy_pass stream_backend;
+        }
+}
