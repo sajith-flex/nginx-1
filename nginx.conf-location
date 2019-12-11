@@ -1,0 +1,16 @@
+events {
+}
+
+http {
+server {
+listen 8080;
+root /var/www/data;
+location / {
+    try_files $uri $uri.html $uri/ index.html;
+}
+
+location /fallback {
+    root /var/www/another;          # should be accessed at 192.168.56.106/fallback in browser
+}
+}
+    } # end http

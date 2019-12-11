@@ -1,0 +1,12 @@
+worker_processes  1;
+
+events {
+}
+
+http {
+
+        include /etc/nginx/conf.d/*.conf;
+        include /etc/nginx/sites-enabled/*;
+
+
+    } # end http
