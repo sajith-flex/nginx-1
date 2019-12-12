@@ -1,0 +1,234 @@
+##########################################################
+##########################################################
+HTTP authentication
+######################
+nginx.conf
+#####################
+
+events { }
+http{
+ server {
+   listen 80;
+   location / {
+   root /usr/share/nginx/html;
+   # deny all;    # deny all access
+
+   }
+
+   location /admin {
+   root /usr/share/nginx/html;
+      index index.html;
+      auth_basic "basic authentication";
+      auth_basic_user_file "/etc/nginx/.htpasswd";
+    }
+
+   location /public {
+   root /usr/share/nginx/html;
+      index index.html;
+      auth_basic off;
+    }
+ }
+}
+##########################################################
+nginx -t
+nginx -s reload
+
+root@ip-172-31-81-60:/etc/nginx# htpasswd
+The program 'htpasswd' is currently not installed. You can install it by typing:
+apt install apache2-utils
+
+root@ip-172-31-81-60:/etc/nginx# htpasswd -c /etc/nginx/.htpasswd admin
+New password:
+Re-type new password:
+Adding password for user admin
+
+
+mkdir /usr/share/nginx/html/admin
+cp /usr/share/nginx/html/index.html /usr/share/nginx/html/admin   and modify index.html with admin comments
+mkdir /usr/share/nginx/html/public
+cp /usr/share/nginx/html/index.html /usr/share/nginx/html/public   and modify index.html with public comments
+
+Access 
+http://192.168.56.106/         #default with no credentials
+http://192.168.56.106/admin    # display admin index after entering credentials
+http://192.168.56.106/public   # display public index with no credentials
+
+##########################################################
+##########################################################
+Security and encryption using SSL 
+##########################################################
+
+user  nginx;
+worker_processes  auto;
+
+events {
+    worker_connections  1024;
+}
+
+
+http {
+server {
+        listen 80 default_server;
+        listen [::]:80 default_server ipv6only=on;
+
+        root /usr/share/nginx/html;
+        index index.html;
+       listen 443 ssl;
+
+        ssl_certificate /etc/ssl/nginx/nginx-repo.crt;                       
+        ssl_certificate_key /etc/ssl/nginx/nginx-repo.key;
+
+        location / {
+                try_files $uri $uri/ =404;
+        }
+}
+}
+##########################################################
+Access using 	-	https://192.168.56.106     -  need valid certificate to work
+
+
+##########################################################
+##########################################################
+Logging
+######################
+nginx.conf
+#####################
+
+
+events { }
+
+http {
+    log_format compression '$remote_addr - $remote_user [$time_local] '
+                           '"$request" $status $body_bytes_sent '
+                           '"$http_referer" "$http_user_agent" "$gzip_ratio"';
+
+ server {
+   listen 80;
+   location / {
+   root /usr/share/nginx/html;
+	gzip on;
+        access_log /var/log/nginx/nginx-access.log compression;
+           } # end location
+        } # end server
+    } # end http
+
+
+
+##################################### 
+#7 Health Check
+
+Passive Health Check : For passive health checks, Nginx Plus and Nginx monitor the transaction as they happen, and try to resume the failed connections. If the transaction still cannot be resumed, Nginx Plus and Nginx open-source mark the server as unavailable and temporarily stop sending requests to it until it is marked active again.
+#####################################
+vi /etc/nginx/nginx.conf
+events { }
+
+http {
+   log_format upstreamlog '$server_name to: $upstream_addr {$request} '
+   'upstream_response_time $upstream_response_time'
+   ' request_time $request_time';
+
+upstream backend {
+  # ip_hash;                             # This allows the visitors to be directed each time to the same server
+  # least_conn;				 # This allows the visitors to be directed to server with least connection
+
+   server localhost:8888;		 # by default round robin
+   server localhost:8889;
+   server localhost:9000 max_fails=3 fail_timeout=30s;
+
+#   server localhost:8888 weight=3;       # server with highest weight selected most often
+#   server localhost:8889 weight=2;
+#   server localhost:9000; 
+
+ }
+
+server {
+   listen 80;
+   access_log /var/log/nginx/nginx-access.log upstreamlog;
+   location / {
+      proxy_pass http://backend;
+   }
+}
+}
+
+# If Nginx will fail to send a request to a server or if will not receive response from it 3 times in 30 secs,it will mark the server unavailable for 30 secs
+
+nginx -s reload
+
+kill -9  <process id for server localhost:9000>
+# refresh web browser multible times - request will go to 1 and 2 only
+python3 -m http.server 9000 &
+
+# refresh web browser multiple times - still request goes to 1 and 2 only until 30 secs.
+##################################################################################################################################
+
+
+Active health check
+
+
+root@ip-172-31-81-60:/etc/nginx# vi nginx.conf
+events { }
+
+http {
+   log_format upstreamlog '$server_name to: $upstream_addr {$request} '
+   'upstream_response_time $upstream_response_time'
+   ' request_time $request_time';
+
+upstream backend {
+  # ip_hash;                             # This allows the visitors to be each time directed to the same server
+  # least_conn;                          # This allows the visitors to be directed to server with least connection
+   zone backend 64k;                # required for active health check tag health_check    
+   server localhost:8888;                # by default round robin
+   server localhost:8889;
+   server localhost:9000;
+
+# server localhost:9000 max_fails=3 fail_timeout=30s;
+
+
+#   server localhost:8888 weight=3;       # server with highest weight selected most often
+#   server localhost:8889 weight=2;
+#   server localhost:9000;
+
+ }
+
+server {
+   listen 80;
+   access_log /var/log/nginx/nginx-access.log upstreamlog;
+   location / {
+      proxy_pass http://backend;
+      health_check port=9000 interval=20 fails=3 passes=2;          # keep checking health after every 20 sec as long as port 9000 is running
+     # health_check interval=20 fails=3 passes=2;          # keep checking health after every 20 sec for all ports
+   }
+}
+}
+
+
+# if we disable "proxy_pass http://localhost:8888;" then 192.168.56.106	will show default web page
+
+#########################################################
+##########################################################
+Performance tuning
+######################
+nginx.conf
+#####################
+
+lshw -short 
+lshw -short -class cpu       or  cat /proc/cpuinfo | grep processor
+
+root@u64-nginx-plus:~# lshw -short -class cpu
+H/W path        Device     Class      Description
+=================================================
+/0/2                       processor  Intel(R) Core(TM) i3-4005U CPU @ 1.70GHz
+
+root@u64-nginx-plus:/etc/nginx# git clone https://github.com/BlackrockDigital/startbootstrap-clean-blog.git
+
+root@u64-nginx-plus:/etc/nginx# ab -c 100 -n 50000 http://159.203.93.149/
+
+vi nginx.conf
+#worker_processes auto;  1 work process per cpu by default
+worker_processes 4;
+....
+...
+
+root@u64-nginx-plus:/etc/nginx# ps -ef | grep nginx
+   will show 4 work processes
+

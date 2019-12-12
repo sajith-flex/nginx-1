@@ -1,0 +1,29 @@
+events { }
+
+http {
+   log_format upstreamlog '$server_name to: $upstream_addr {$request} '
+   'upstream_response_time $upstream_response_time'
+   ' request_time $request_time';
+
+upstream backend {
+    ip_hash;                             # This allows the visitors to be directed each time to the same server
+  # least_conn;				 # This allows the visitors to be directed to server with least connection
+
+#   server localhost:8888;		 # by default round robin
+#   server localhost:8889;
+#   server localhost:9000;
+
+   server localhost:8888 weight=3;       # server with highest weight selected most often
+   server localhost:8889 weight=2;
+   server localhost:9000;
+
+ }
+
+server {
+   listen 80;
+   access_log /var/log/nginx/nginx-access.log upstreamlog;
+   location / {
+      proxy_pass http://backend;
+   }
+}
+}

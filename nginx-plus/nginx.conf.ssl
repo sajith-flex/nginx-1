@@ -1,0 +1,26 @@
+
+user  nginx;
+worker_processes  auto;
+
+events {
+    worker_connections  1024;
+}
+
+
+http {
+server {
+        listen 80 default_server; 
+        listen [::]:80 default_server ipv6only=on;
+        
+        root /usr/share/nginx/html;
+        index index.html;
+       listen 443 ssl;
+
+        ssl_certificate /etc/ssl/nginx/nginx-repo.crt;
+        ssl_certificate_key /etc/ssl/nginx/nginx-repo.key;
+
+        location / {
+                try_files $uri $uri/ =404;
+        }
+}
+}

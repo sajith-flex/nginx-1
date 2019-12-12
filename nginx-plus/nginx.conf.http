@@ -1,0 +1,24 @@
+events { }
+http{
+ server {
+   listen 80;
+   location / {
+   root /usr/share/nginx/html;
+   # deny all;    # deny all access
+
+   }
+
+   location /admin {
+   root /usr/share/nginx/html;
+      index index.html;
+      auth_basic "basic authentication";
+      auth_basic_user_file "/etc/nginx/.htpasswd";
+    }
+
+   location /public {
+   root /usr/share/nginx/html;
+      index index.html;
+      auth_basic off;
+    }
+ }
+}
